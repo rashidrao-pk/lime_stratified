@@ -285,3 +285,63 @@ def test_stratified_explain_instance_end_to_end():
     assert explanation_a.local_exp[1] == explanation_b.local_exp[1]
     assert np.allclose(explanation_a.local_pred[1], explanation_b.local_pred[1])
     assert np.isclose(explanation_a.score[1], explanation_b.score[1])
+
+
+def test_stratified_sampling_has_more_uniform_cardinality_coverage():
+    n_features = 12
+    num_samples = 5000
+
+    segments = np.arange(n_features).reshape(3, 4)
+    image = np.zeros((3, 4, 3), dtype=np.float32)
+    fudged_image = np.zeros_like(image)
+
+    def classifier_fn(images):
+        return np.tile(np.array([[0.4, 0.6]]), (len(images), 1))
+
+    standard = LimeImageExplainer(random_state=42)
+    stratified = LimeImageExplainer(random_state=42)
+
+    data_standard, _, _ = standard.data_labels(
+        image=image,
+        fudged_image=fudged_image,
+        segments=segments,
+        classifier_fn=classifier_fn,
+        num_samples=num_samples,
+        batch_size=100,
+        use_stratification=False,
+        progress_bar=False,
+    )
+
+    data_stratified, _, _ = stratified.data_labels(
+        image=image,
+        fudged_image=fudged_image,
+        segments=segments,
+        classifier_fn=classifier_fn,
+        num_samples=num_samples,
+        batch_size=100,
+        use_stratification=True,
+        progress_bar=False,
+    )
+
+    # The first perturbation is explicitly forced to all active features,
+    # so exclude it from the statistical comparison.
+    standard_counts = np.bincount(
+        data_standard[1:].sum(axis=1),
+        minlength=n_features + 1,
+    )
+    stratified_counts = np.bincount(
+        data_stratified[1:].sum(axis=1),
+        minlength=n_features + 1,
+    )
+
+    standard_freq = standard_counts / standard_counts.sum()
+    stratified_freq = stratified_counts / stratified_counts.sum()
+
+    uniform = np.full(n_features + 1, 1.0 / (n_features + 1))
+
+    standard_mad = np.mean(np.abs(standard_freq - uniform))
+    stratified_mad = np.mean(np.abs(stratified_freq - uniform))
+
+    assert stratified_mad < standard_mad
+    assert stratified_mad < 0.02
+    assert stratified_mad < 0.25 * standard_mad
