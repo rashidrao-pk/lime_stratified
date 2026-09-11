@@ -218,3 +218,70 @@ def test_weight_adjustments_multiply_kernel_weights():
 
     assert np.allclose(recorded["distances"], original_distances)
     assert np.allclose(regressor.sample_weight, expected_weights)
+
+
+def test_stratified_explain_instance_end_to_end():
+    image = np.zeros((4, 4, 3), dtype=np.float32)
+
+    segments = np.array([
+        [0, 0, 1, 1],
+        [0, 0, 1, 1],
+        [2, 2, 3, 3],
+        [2, 2, 3, 3],
+    ])
+
+    def segmentation_fn(_image):
+        return segments
+
+    def classifier_fn(images):
+        probs = []
+        for img in images:
+            score = float(np.mean(img))
+            score = np.clip(score, 0.0, 1.0)
+            probs.append([1.0 - score, score])
+        return np.array(probs)
+
+    explainer_a = LimeImageExplainer(random_state=42)
+    explainer_b = LimeImageExplainer(random_state=42)
+
+    explanation_a = explainer_a.explain_instance(
+        image=image,
+        classifier_fn=classifier_fn,
+        labels=(1,),
+        top_labels=None,
+        num_features=4,
+        num_samples=50,
+        batch_size=10,
+        segmentation_fn=segmentation_fn,
+        use_stratification=True,
+        progress_bar=False,
+    )
+
+    explanation_b = explainer_b.explain_instance(
+        image=image,
+        classifier_fn=classifier_fn,
+        labels=(1,),
+        top_labels=None,
+        num_features=4,
+        num_samples=50,
+        batch_size=10,
+        segmentation_fn=segmentation_fn,
+        use_stratification=True,
+        progress_bar=False,
+    )
+
+    assert 1 in explanation_a.local_exp
+    assert 1 in explanation_a.local_pred
+    assert 1 in explanation_a.score
+
+    feature_ids = [feature_id for feature_id, _ in explanation_a.local_exp[1]]
+    weights = [weight for _, weight in explanation_a.local_exp[1]]
+
+    assert all(0 <= feature_id < 4 for feature_id in feature_ids)
+    assert np.all(np.isfinite(weights))
+    assert np.all(np.isfinite(explanation_a.local_pred[1]))
+    assert np.isfinite(explanation_a.score[1])
+
+    assert explanation_a.local_exp[1] == explanation_b.local_exp[1]
+    assert np.allclose(explanation_a.local_pred[1], explanation_b.local_pred[1])
+    assert np.isclose(explanation_a.score[1], explanation_b.score[1])
