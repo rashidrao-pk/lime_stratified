@@ -181,9 +181,10 @@ class LimeBase(object):
             local_pred is the prediction of the explanation model on the original instance
         """
 
-        if weight_adjustments is not None:
-            distances *= weight_adjustments
         weights = self.kernel_fn(distances)
+
+        if weight_adjustments is not None:
+            weights *= weight_adjustments
         labels_column = neighborhood_labels[:, label]
         used_features = self.feature_selection(neighborhood_data,
                                                labels_column,
